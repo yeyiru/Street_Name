@@ -193,11 +193,11 @@ class word_cut():
                 useful_index = useful_index.append(cache_index, ignore_index = True)
                 line_pointer += 1
             #地名釋義終結了村、里的description，且下面是具體地名
-            elif '地名釋義' in line and len(line) <=10:
+            elif ('地名釋義' in line or '二、其他' in line) and len(line) <=10:
                 useful_index.iloc[line_pointer - 1, 5] = i - 1
             #具體地名以括號+中文數字做開頭
             #具體地名緊接著就是description
-            elif '（'  in line and '）' in line and len(line) <= 30 and any(s in line for s in self.chinese):
+            elif '（'  in line and '）' in line and any(s in line for s in self.chinese) and (len(line) <= 30 or '【' in line):
                 try:
                     #以）分割取出具體地名
                     line = line.split('）', 1)[1]
@@ -254,9 +254,10 @@ class word_cut():
         #如果只有一行description則直接寫入
         if index_down == index_up - 1:
             description = self.clear_description(self.document_list[index_up])
-        for i in range(index_down + 1, index_up + 1):
-            description = description + self.document_list[i]
-            description = self.clear_description(description) 
+        else:
+            for i in range(index_down + 1, index_up + 1):
+                description = description + self.document_list[i]
+                description = self.clear_description(description)
         return description
     
     def clear_description(self, description):
@@ -265,7 +266,7 @@ class word_cut():
         description = description.replace('\r', '')
         description = description.replace('\n', '')
         description = description.strip('三、其他')
-        description = description.strip('地名釋義')
+        description = description.strip('二、地名釋義')
         return description
     
     def re_index(self):
