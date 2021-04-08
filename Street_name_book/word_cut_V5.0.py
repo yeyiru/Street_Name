@@ -43,8 +43,8 @@ from tqdm import tqdm
 #數據處理，doc轉docx轉txt存入本地
 class data_processor():
     def __init__(self):
-        #self.dir_name = 'F:/street_name/book/'
-        self.dir_name = 'D:/street_name/book/'
+        self.dir_name = 'F:/street_name/book/'
+        #self.dir_name = 'D:/street_name/book/'
 
     def doc2docx(self):
         #doc转docx
@@ -85,8 +85,8 @@ class word_cut():
     def __init__(self):
         #初始化全局變量
         #工作目錄
-        #self.dir_name = 'F:/street_name/book/'
-        self.dir_name = 'D:/street_name/book/'
+        self.dir_name = 'F:/street_name/book/'
+        #self.dir_name = 'D:/street_name/book/'
         #中文字符常量
         self.chinese = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十']
 
@@ -181,7 +181,7 @@ class word_cut():
             line = line.replace('\n', '')
             #依次切斷
             #里（村）名由来下面是里（村）的description
-            if '名由來' in line and len(line) <= 10:
+            if '名由來' in line and len(line) <= 8 and '。' not in line:
                 try:
                     line = line.split('、')[1]
                 except:
