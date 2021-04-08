@@ -43,7 +43,8 @@ from tqdm import tqdm
 #數據處理，doc轉docx轉txt存入本地
 class data_processor():
     def __init__(self):
-        self.dir_name = 'F:/street_name/book/'
+        #self.dir_name = 'F:/street_name/book/'
+        self.dir_name = 'D:/street_name/book/'
 
     def doc2docx(self):
         #doc转docx
@@ -84,7 +85,8 @@ class word_cut():
     def __init__(self):
         #初始化全局變量
         #工作目錄
-        self.dir_name = 'F:/street_name/book/'
+        #self.dir_name = 'F:/street_name/book/'
+        self.dir_name = 'D:/street_name/book/'
         #中文字符常量
         self.chinese = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十']
 
@@ -144,7 +146,7 @@ class word_cut():
 
     def get_vil_name(self, line):
         #根據內容和長度查找 “第X項 XX村（里）”格式段落
-        if '第' in line and '項' in line and len(line) <= 24:
+        if '第' in line and '項' in line and len(line) <= 24 and '。' not in line and '：' not in line:
             tmp = line.split('項')
             return tmp[1].strip()
         elif '第' in line and '章' in line and any(s in line for s in self.chinese) and len(line) <= 12:
@@ -193,11 +195,15 @@ class word_cut():
                 useful_index = useful_index.append(cache_index, ignore_index = True)
                 line_pointer += 1
             #地名釋義終結了村、里的description，且下面是具體地名
-            elif ('地名釋義' in line or '二、其他' in line) and len(line) <=10:
+            elif ('二、地名釋義' in line or '二、其他' in line) and len(line) <=10:
                 useful_index.iloc[line_pointer - 1, 5] = i - 1
             #具體地名以括號+中文數字做開頭
+            #如果是短句必定以‘。’結尾
             #具體地名緊接著就是description
-            elif '（'  in line and '）' in line and any(s in line for s in self.chinese) and (len(line) <= 30 or '【' in line):
+            elif '（'  in line and '）' in line \
+                and any(s in line for s in self.chinese) \
+                    and '。' not in line\
+                        and '：' not in line:
                 try:
                     #以）分割取出具體地名
                     line = line.split('）', 1)[1]
@@ -239,12 +245,12 @@ class word_cut():
                 name = useful_index.iloc[i, 3]
                 description = self.get_description(useful_index.iloc[i, 4], useful_index.iloc[i, 5])
             cache_description = pd.DataFrame({'No': no,
-                                                'name_dist': dist_name,
-                                                'name_li': vil_name,
-                                                'name': name,
-                                                'name_eng': name_eng,
-                                                'location': location,
-                                                'description': description}, index = [0])
+                                              'name_dist': dist_name,
+                                              'name_li': vil_name,
+                                              'name': name,
+                                              'name_eng': name_eng,
+                                              'location': location,
+                                              'description': description}, index = [0])
             #寫入df
             self.df_save = self.df_save.append(cache_description, ignore_index = True)
     
@@ -265,8 +271,8 @@ class word_cut():
         description = description.strip()
         description = description.replace('\r', '')
         description = description.replace('\n', '')
-        description = description.strip('三、其他')
-        description = description.strip('二、地名釋義')
+        description = description.replace('三、其他', '')
+        description = description.replace('二、地名釋義', '')
         return description
     
     def re_index(self):
