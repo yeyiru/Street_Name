@@ -1,6 +1,7 @@
 #coding: UTF-8
 #開始運行前，請先全選doc，按ctrl + shift + f9移除所有超鏈接並保存
 #如果有超鏈接，轉換會出錯
+#执行宏操作把doc中的编号转成固定文本
 #編譯辭書格式：
 #第一章  XXX
 #第二章  XXX
@@ -39,6 +40,7 @@ import pandas as pd
 from docx import Document
 import win32com.client as wc
 import os
+import re
 from tqdm import tqdm
 #數據處理，doc轉docx轉txt存入本地
 class data_processor():
@@ -71,11 +73,24 @@ class data_processor():
                 document = Document(docx_path)
                 txt_path = os.path.join(self.dir_name, str(i).replace('.docx', '.txt'))
                 txt_file = open(txt_path, 'w', encoding = 'utf-8')
+                mode = False
                 for paragraph in tqdm(document.paragraphs):
                     new_paragraph = paragraph.text.strip('/r')
                     new_paragraph = new_paragraph.strip()
+                    new_paragraph = new_paragraph.replace(' ', '')
+                    new_paragraph = new_paragraph.replace(' ', '')
+                    if new_paragraph == '註：':
+                        mode = True
+                        continue
+
+                    if mode:
+                        if new_paragraph.startswith('（'):
+                            continue
+                        else:
+                            mode = False
                     if new_paragraph != '':
                         txt_file.write(new_paragraph + '\n')
+                    
                 txt_file.close()
                 #删除使用过的docx
                 os.remove(docx_path)
@@ -90,6 +105,22 @@ class word_cut():
         #中文字符常量
         self.chinese = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十']
 
+        self.img_id = []
+        self.tab_id = []
+        self.tab_id_xiang = []
+
+        self.img_id2 = []
+        self.tab_id2 = []
+        
+        for i in range(1, 30):
+            for j in range(1, 100):
+                self.img_id.append('（如圖{i}-{j}所示）')
+                self.tab_id.append('（如表{i}-{j}）')
+                self.tab_id_xiang.append('（詳如表{i}-{j}）')
+                
+                self.img_id2.append('圖{i}-{j}')
+                self.tab_id2.append('表{i}-{j}')
+
     def run(self):
         for i in os.listdir(self.dir_name):
             if i.endswith('.txt') and not i .startswith('~$'):
@@ -98,7 +129,9 @@ class word_cut():
                 self.get_txt(i)
                 self.get_vil_index_up_down()
                 self.cut_vli_by_index()
+                self.get_small_name()
                 self.re_index()  #若註解此行則以村里為單位標記No
+                self.split_taipei()
                 self.save_csv()
                 
     def get_txt(self, file_name):
@@ -146,8 +179,9 @@ class word_cut():
 
     def get_vil_name(self, line):
         #根據內容和長度查找 “第X項 XX村（里）”格式段落
-        if '第' in line and '項' in line and len(line) <= 24 and '。' not in line and '：' not in line:
+        if  line.startswith('第') and '項' in line and (len(line) <= 24 or '（' in line) and '。' not in line and '：' not in line:
             tmp = line.split('項')
+            tmp[1] = tmp[1].replace('\n', '')
             return tmp[1].strip()
         elif '第' in line and '章' in line and any(s in line for s in self.chinese) and len(line) <= 12:
             tmp = line.split('章')
@@ -179,9 +213,10 @@ class word_cut():
             line = self.document_list[i].strip()
             line = line.replace('\r', '')
             line = line.replace('\n', '')
+            line = line.replace('	', '')
             #依次切斷
             #里（村）名由来下面是里（村）的description
-            if '名由來' in line and len(line) <= 8 and '。' not in line:
+            if ('名由來' in line or '名緣起' in line) and len(line) <= 8 and '。' not in line:
                 try:
                     line = line.split('、')[1]
                 except:
@@ -203,7 +238,8 @@ class word_cut():
             elif '（'  in line and '）' in line \
                 and any(s in line for s in self.chinese) \
                     and '。' not in line\
-                        and '：' not in line:
+                        and '本里於' not in line\
+                            and '：' not in line:
                 try:
                     #以）分割取出具體地名
                     line = line.split('）', 1)[1]
@@ -262,33 +298,128 @@ class word_cut():
             description = self.clear_description(self.document_list[index_up])
         else:
             for i in range(index_down + 1, index_up + 1):
-                description = description + self.document_list[i]
-                description = self.clear_description(description)
+                if self.document_list[i].startswith(tuple(self.img_id2))\
+                    or self.document_list[i].startswith(tuple(self.tab_id2)):
+                    pass
+                else:
+                    description = description + self.document_list[i]
+                    description = self.clear_description(description)
         return description
     
     def clear_description(self, description):
         #清理正文內容，去除換行、空格、局末的其他（小地名存在兩個部分，以其他分隔，因只有一行，將其歸上處理）等不必要的字符
-        description = description.strip()
+        #description = description.strip()
         description = description.replace('\r', '')
-        description = description.replace('\n', '')
+        #description = description.replace('\n', '')
+        description = description.replace('	', '')
         description = description.replace('三、其他', '')
         description = description.replace('二、地名釋義', '')
+        description = description.replace('二、其他', '')
+        for i in range(len(self.img_id)):
+            description = description.replace(self.img_id[i], '')
+            description = description.replace(self.tab_id[i], '')
+            description = description.replace(self.tab_id_xiang[i], '')
+        
+
         return description
     
+    def get_small_name(self):
+        self.df_save2 = pd.DataFrame(columns = ['No', 'name_dist', 'name_li', 'name', 'name_eng', 'location', 'description'])
+        cnt = 0
+        for i in tqdm(range(len(self.df_save))):
+
+            if '小地名' in self.df_save.iloc[i, 6] and '1.' in self.df_save.iloc[i, 6]:
+                tmp = self.df_save.iloc[i, 6].split('小地名')[-2]
+                cache_new_df = pd.DataFrame({'No': self.df_save.iloc[i, 0],
+                                             'name_dist': self.df_save.iloc[i, 1],
+                                             'name_li': self.df_save.iloc[i, 2],
+                                             'name': self.df_save.iloc[i, 3],
+                                             'name_eng': self.df_save.iloc[i, 4],
+                                             'location': self.df_save.iloc[i, 5],
+                                             'description': tmp.replace('\n', '').replace(' ', '')}, index = [0])
+                self.df_save2 = self.df_save2.append(cache_new_df, ignore_index = True)
+
+                tmp = self.df_save.iloc[i, 6].split('小地名')[-1]
+                tmp = tmp.split('：', 1)[1]
+                tmp2 = tmp.split('.')
+                for j in range(1, len(tmp2)):
+                    try:
+                        cache_new_df = pd.DataFrame({'No': self.df_save.iloc[i, 0],
+                                                    'name_dist': self.df_save.iloc[i, 1],
+                                                    'name_li': self.df_save.iloc[i, 2],
+                                                    'name': tmp2[j].split('：')[0],
+                                                    'name_eng': self.df_save.iloc[i, 4],
+                                                    'location': self.df_save.iloc[i, 5],
+                                                    'description': self.clear_small_description(tmp2[j].split('：')[1])}, index = [0])
+                        self.df_save2 = self.df_save2.append(cache_new_df, ignore_index = True)
+                    except:
+                        pass
+
+            elif '消失的聚落' in self.df_save.iloc[i, 3]:
+                tmp2 = self.df_save.iloc[i, 6].split('.')
+                for j in range(1, len(tmp2)):
+                    try:
+                        cache_new_df = pd.DataFrame({'No': self.df_save.iloc[i, 0],
+                                                     'name_dist': self.df_save.iloc[i, 1],
+                                                     'name_li': self.df_save.iloc[i, 2],
+                                                     'name': tmp2[j].split('\n')[0],
+                                                     'name_eng': self.df_save.iloc[i, 4],
+                                                     'location': self.df_save.iloc[i, 5],
+                                                     'description': self.clear_small_description(tmp2[j].split('\n')[1])}, index = [0])
+                        self.df_save2 = self.df_save2.append(cache_new_df, ignore_index = True)
+                    except:
+                        self.df_save2.iloc[cnt, 6] = self.df_save2.iloc[cnt, 6] + tmp2[j].replace('\n', '')
+
+            else:
+                cache_new_df = pd.DataFrame({'No': self.df_save.iloc[i, 0],
+                                             'name_dist': self.df_save.iloc[i, 1],
+                                             'name_li': self.df_save.iloc[i, 2],
+                                             'name': self.df_save.iloc[i, 3],
+                                             'name_eng': self.df_save.iloc[i, 4],
+                                             'location': self.df_save.iloc[i, 5],
+                                             'description': self.df_save.iloc[i, 6].replace('\n', '').replace(' ', '')}, index = [0])
+                #寫入df
+                self.df_save2 = self.df_save2.append(cache_new_df, ignore_index = True)
+            cnt += 1
+
+    def clear_small_description(self, description):
+        for i in range(10):
+            description = description.strip(str(i))
+            description = description.replace('\n' ,'')
+        return description
+
     def re_index(self):
         #重新編號，以鄉鎮區為編號單位
         count = 0
-        for i in range(len(self.df_save)):
+        for i in range(len(self.df_save2)):
             count += 1
-            self.df_save.iloc[i, 0] = count
+            self.df_save2.iloc[i, 0] = count
             try:
-                if self.df_save.iloc[i, 1] != self.df_save.iloc[i + 1, 1]:
+                if self.df_save2.iloc[i, 1] != self.df_save2.iloc[i + 1, 1]:
                     count = 0
             except:
                 pass
 
+    def split_taipei(self):
+        zhmodle =re.compile(u'[\u4e00-\u9fa5]')
+
+        for i in tqdm(range(len(self.df_save2))):
+            name_line = self.df_save2.iloc[i, 3]
+            name_line = name_line.replace('(', '（')
+            name_line = name_line.replace(')', '）')
+        
+            tmp = name_line.split('（')
+            self.df_save2.iloc[i, 3] = tmp[0]
+            for j in range(1, len(tmp)):
+                if ',' in tmp[j]:
+                    self.df_save2.iloc[i, 5] = tmp[j].replace('）', '')
+                elif any(c.islower() for c in tmp[j]):
+                    self.df_save2.iloc[i, 4] = tmp[j].replace('）', '')
+                elif zhmodle.search(tmp[j]):
+                    self.df_save2.iloc[i, 3] = str(tmp[0] + '（' + tmp[j])
+
     def save_csv(self):
-        self.df_save.to_csv(self.dir_name + self.save_name, header=1, index = False, encoding='utf-8-sig')
+        self.df_save2.to_csv(self.dir_name + self.save_name, header=1, index = False, encoding='utf-8-sig')
 
 if __name__ == '__main__':
 
